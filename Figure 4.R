@@ -15,23 +15,70 @@ library(ggpubr)
 # composition plot
 ####
 
-pcoa_plot = read.table("kos/kos_PCOA_copy_per_cell.plot.tab")
-pcoa_plot$Treatment = as.factor(pcoa_plot$remark)
 
-pcoa_plot$Treatment = factor(pcoa_plot$Treatment,levels = c("control","antibiotics", "copper", "drought",
-                                            "microplastic", "Ndep", "salinity", "temp",
-                                            "fungicide", "glyphosate","insecticide","Level 8"
-))
+# load metadata
+metadata = read.table("metadata.tab",header = T,sep = '\t')
+metadata$Tube.number
+metadata$sample = paste(metadata$Tube.number,sep  = '')
+
+# load ko number per sample
+data = read.table("KOs/ko_number_per_sample.desc.tab",header = F, sep = '\t',quote = "")
+names(data) = c("desc","ko","sample","n_genes")
+data$sample = tstrsplit(data$sample, "_")[[2]]
+data$sample = str_replace_all(data$sample,"b",'')
+
+
+data = data %>% 
+  left_join(metadata,by = "sample")
+
+# load marker copy number per samplpe
+mabs = read.table("../maker_gene_count/maker_count_per_sample.tab", header = F, sep = "\t")
+names(mabs) = c("sample","mean_n_mar","median_n_mar","total_n_mar")
+mabs$sample = tstrsplit(mabs$sample, "_")[[2]]
+mabs$sample = str_replace_all(mabs$sample,"b",'')
+mabs = mabs %>% 
+  group_by(sample) %>% 
+  dplyr::select(sample,mean_n_mar) %>% 
+  unique()
+
+data = data %>% 
+  left_join(mabs,by = "sample")
+
+
+data$copy_n_per_cell = data$n_genes / data$mean_n_mar
+
+# select columns
+data = data %>% 
+  dplyr::select(ko,copy_n_per_cell,remark,sample) %>% 
+  filter(sample != 85) %>% 
+  unique()
+
+dspread = data %>%
+  spread(key = ko,value = copy_n_per_cell) 
+
+rownames(dspread) = dspread$sample
+dspread$sample = NULL
+dspread$remark = NULL
+dspread = (as.matrix(dspread))
+
+d_m = vegdist(dspread, method="bray")
+pcoa = ape::pcoa(d_m)
+pcoa_plot = as.data.frame(pcoa$vectors[,1:2])
+
+pcoa_plot$sample = row.names(pcoa_plot)
+pcoa_plot = pcoa_plot %>% 
+  left_join(metadata,by = "sample")
 
 custom_palette <- c("#999999", "#377EB8", "#F781BF","#4DAF4A", "#FF7F00",
                     "#E41A1C", "#A65628", "#984EA3", "#FFFF33", "#66C2A5", "black", "#8EBA42")
 
 
+
 p_pcoa = ggplot(pcoa_plot)+
   geom_point(aes(x = Axis.1, y = Axis.2,color = Treatment,shape = as.factor(Lv)),size =3)+
   theme_classic()+
-  xlab(paste("PCoA 1 (35.92 %)",sep = ""))+
-  ylab(paste("PCoA 2 (9.02 %)",sep = ""))+
+  xlab(paste("PCoA 1 (",round(pcoa$values$Relative_eig[1]*100,digits = 2),"%)",sep = ""))+
+  ylab(paste("PCoA 2 (",round(pcoa$values$Relative_eig[2]*100,digits = 2),"%)",sep = ""))+
   geom_text_repel(data = pcoa_plot[pcoa_plot$sample %in% c(124,127,128),],
                   aes(label = sample,x = Axis.1,y = Axis.2),
                   box.padding   = 1.5, 
@@ -41,15 +88,9 @@ p_pcoa = ggplot(pcoa_plot)+
   theme(legend.position = "none")+
   scale_color_manual(values = custom_palette)
 
-
-p_pcoa
-
 ###
 # DA plots
 ###
-
-# from kpath_plot_DA_kpaths_as_CRC.r
-# q-value < 0.01
 
 data = read.table("kpaths/kpath_DA_data_plot.tab")
 data = data %>%
@@ -79,7 +120,6 @@ data_c = read.table("KOs/ko_number_per_sample.desc.tab",header = F, sep = '\t',q
 names(data_c) = c("desc","ko","sample","n_genes")
 data_c$sample = tstrsplit(data_c$sample, "_")[[2]]
 data_c$sample = str_replace_all(data_c$sample,"b",'')
-
 
 # load marker copy number per samplpe
 mabs = read.table("../../maker_gene_count/maker_count_per_sample.tab", header = F, sep = "\t")
