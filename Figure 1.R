@@ -1,30 +1,21 @@
 library(ggplot2)
 library(tidyr)
-#install.packages("compositions")
 library(dplyr)
 library(patchwork)
 library(vegan)
-#install.packages("ecodist")
 library(ecodist)
-#install.packages("MASS")
 library(MASS)
 library(data.table)
 library(stringr)
-#install.packages("ggsignif")
 library(ggsignif)
-#library(devtools) # Load the devtools package
-#install_github("microbiome/microbiome") # Install the package
 library(microbiome)
 library(ggpubr)
 library(relaimpo)
 library(randomForest)
 library(ggrepel)
 library(ggalt)
-#install.packages("patchwork")
 
-setwd("~/analysis/Berlin/soil 2019 metagenomes/MAGs/semibin/dRep/")
-
-metadata = read.table("../../../metadata.tab",header = T,sep = '\t')
+metadata = read.table("metadata.tab",header = T,sep = '\t')
 metadata$Tube.number
 head(metadata)
 metadata$sample = paste(metadata$Tube.number,sep  = '')
@@ -40,10 +31,6 @@ head(data)
 names(data) = c("species","sample","rel")
 data$sample = tstrsplit(data$sample, "_")[[2]]
 data$sample = str_replace_all(data$sample,"b",'')
-head(data)
-
-head(metadata)
-dm = data
 
 data = data %>%
   left_join(metadata,by = "sample")
@@ -56,12 +43,8 @@ d = data %>%
   filter(sample != 85) %>% 
   filter(grepl("c__",species)) %>%
   filter(!grepl("o__",species)) %>% 
-  #  mutate(taxa_f = case_when(rel > 0.001~ species,
-  #                            rel <= 0.001~"< 0.1 rel abundance")) %>% 
   group_by(sample) %>% 
   mutate(tot = sum(rel))
-
-
 
 d$remark = factor(d$remark,levels = c("control","antibiotics", "copper", "drought",
                                       "microplastic", "Ndep", "salinity", "temp",
@@ -87,19 +70,8 @@ p = ggplot(d)+
   scale_y_discrete(position = "left")+
   guides(fill=guide_legend(nrow=5, byrow=TRUE))
 
-p
-
-
-# d__Bacteria;p__Actinobacteriota;c__Actinomycetia diff abs
-dtest = d %>% 
-  filter(species == 'd__Bacteria;p__Actinobacteriota;c__Actinomycetia')
-
-# diff in rel abs 
-wilcox.test(dtest[dtest$remark=='control',]$rel,dtest[dtest$remark=='Level 8',]$rel)
-
-
 ##
-# add diversity
+# add diversity plot
 ##
 
 div = read.table("coverM/diversity.tab",sep = '\t')
@@ -109,17 +81,10 @@ div = div %>%
   dplyr::select(sample,shannon) %>% 
   left_join(metadata,by = 'sample')
 
-div$remark = factor(div$remark,levels = c("control","antibiotics", "copper", "drought",
-                                          "microplastic", "Ndep", "salinity", "temp",
-                                          "fungicide", "glyphosate","insecticide","Level 8"
-))
 
 control = div %>% 
   filter(Lv == 0)
 control_median_rich = median(control$shannon)
-
-div$Lv = as.factor(div$Lv)
-div$remark <- factor(div$remark, levels = rev(levels(div$remark)))
 
 df.summary <- div %>%
   group_by(remark,Lv) %>%
@@ -151,11 +116,9 @@ p2 = ggplot(div)+
   xlab("")+
   ylab("Sannon diversity")
 
-p2 
-
 
 ##
-# genome size 
+# add genome size plot 
 ##
 
 # load collapsed per tax data for plotting profiles
@@ -165,13 +128,6 @@ data$sample = tstrsplit(data$bin, "_")[[2]]
 data$sample = str_replace_all(data$sample,"b",'')
 data = data %>%
   left_join(metadata,by = "sample")
-
-
-data$remark = factor(data$remark,levels = c("control","antibiotics", "copper", "drought",
-                                            "microplastic", "Ndep", "salinity", "temp",
-                                            "fungicide", "glyphosate","insecticide","Level 8"
-))
-
 
 data %>% 
   filter(remark == 'control') %>%
@@ -194,8 +150,7 @@ df.summary <- data %>%
     len = median(n)
   )
 
-data$Lv = as.factor(data$Lv)
-df.summary$Lv = as.factor(df.summary$Lv)
+
 p3 = ggplot(data)+
   geom_jitter(aes(y = n, x = remark),position = position_jitter(0.2), color = "darkgray",alpha = 0.2) + 
   geom_errorbar(aes(ymin = len-sd, ymax = len+sd,x = remark,color = Lv),data = df.summary,
@@ -223,7 +178,7 @@ p3
 
 
 ##
-# add composition 
+# add composition plot
 ##
 
 data = read.table("coverM/coverM.rel_abs.tab",header = F, sep = '\t')
@@ -242,8 +197,6 @@ data_d = data %>%
   spread(sample,rel)
 
 dpcoa = data_d
-head(dpcoa)
-
 rownames_ = as.character(dpcoa$genome)
 dpcoa$genome = NULL
 s_names = names(dpcoa)
@@ -266,7 +219,6 @@ pcoa_plot = pcoa_plot %>% mutate(lv = case_when(remark == "control" ~0,
                                                 .default = 1))
 
 names(pcoa_plot) = c("V1","V2","remark","lv")
-head(pcoa_plot)
 pcoa_plot$sample = tstrsplit(rownames(pcoa_plot), " ")[[1]]
 pcoa_plot$`Number of factors` = as.factor(pcoa_plot$lv)
 pcoa_plot$remark = as.factor(pcoa_plot$remark)
@@ -276,12 +228,12 @@ pcoa_plot$remark = factor(pcoa_plot$remark,levels = c("control","antibiotics", "
                                       "microplastic", "Ndep", "salinity", "temp",
                                       "fungicide", "glyphosate","insecticide","Level8"
 ))
+
 pcoa_plot$`Number of factors` = as.factor(pcoa_plot$lv)
 
 custom_palette <- c("#999999", "#377EB8", "#F781BF","#4DAF4A", "#FF7F00",
                     "#E41A1C", "#A65628", "#984EA3", "#FFFF33", "#66C2A5", "black", "#8EBA42")
 
-head(pcoa_plot)
 p4 = ggplot(pcoa_plot)+
   geom_point(aes(x = V1, y = V2,color = remark,shape = `Number of factors`),size = 4)+
   theme_classic()+
