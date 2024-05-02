@@ -80,6 +80,17 @@ names(data_c) = c("desc","ko","sample","n_genes")
 data_c$sample = tstrsplit(data_c$sample, "_")[[2]]
 data_c$sample = str_replace_all(data_c$sample,"b",'')
 
+
+# load marker copy number per samplpe
+mabs = read.table("../../maker_gene_count/maker_count_per_sample.tab", header = F, sep = "\t")
+names(mabs) = c("sample","mean_n_mar","median_n_mar","total_n_mar")
+mabs$sample = tstrsplit(mabs$sample, "_")[[2]]
+mabs$sample = str_replace_all(mabs$sample,"b",'')
+mabs = mabs %>% 
+  group_by(sample) %>% 
+  dplyr::select(sample,mean_n_mar) %>% 
+  unique()
+
 data = merge(data_c,metadata,by = "sample")
 data = merge(data,mabs,by = "sample")
 
