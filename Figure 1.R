@@ -268,7 +268,7 @@ AAAABCDDDD
 p_all = p + p2 + p3 + p4 +  plot_layout(design = layout)+plot_annotation(tag_levels = 'A', title = 'Figure 1')
 p_all
 
-pdf("~/analysis/Berlin/soil 2019 metagenomes/Figures/Figure 1.pdf", width=20, height=8)
+pdf("Figure 1.pdf", width=20, height=8)
 print(p_all)
 graphics.off()
 
