@@ -6,5 +6,5 @@ Scripts used during the analysis of the metagenomes of 70 soil samples exposed t
      style="float: left; margin-right: 10px;" />
 
 This repository includes: 
-- A script with all the statistical analysis (`statistics.r`)
+- A script with the main statistical analysis (`statistics.r`)
 - Scripts for generating the main figures (`Figure1-6.r`)
