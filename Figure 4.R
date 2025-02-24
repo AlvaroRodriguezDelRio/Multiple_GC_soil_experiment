@@ -1,196 +1,149 @@
-# funct combined plot 
 library(ggplot2)
-library(patchwork)
-library(dplyr)
-library(data.table)
 library(tidyr)
-library(tidyverse)
-library(pheatmap)
-library(ggrepel)
-library(ggalt)
+#install.packages("compositions")
+library(dplyr)
+library(patchwork)
+library(vegan)
+#install.packages("ecodist")
+library(ecodist)
+#install.packages("MASS")
+library(MASS)
+library(data.table)
+library(stringr)
+#install.packages("ggsignif")
+library(ggsignif)
+#library(devtools) # Load the devtools package
+#install_github("microbiome/microbiome") # Install the package
+library(microbiome)
 library(ggpubr)
+library(relaimpo)
+library(randomForest)
+library(ggrepel)
+library(forcats)
 
 
-####
-# composition plot
-####
+
+setwd("~/analysis/Berlin/soil 2019 metagenomes/Figures/Source_data/")
+
+# 4A
+
+d = read.csv('4A.csv')
+d$remark = factor(d$remark,levels = c("Control","Warming","Drought","Nitrogen deposition",
+                                      "Salinity","Heavy metals","Microplastics",
+                                      "Antibiotics","Fungicide", "Herbicide",
+                                      "Insecticide","8 factors"
+))
+
+# plot profiled flipped 
+p_prof = ggplot(d)+
+  theme_void()+
+  geom_histogram(aes(y = sample,x = rel_sp *100 / tot,fill = class),stat = "identity")+
+  theme(text = element_text(size = 25))+
+  theme(axis.text.x=element_text(angle=90, hjust=1,size = 15),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = "bottom",
+        strip.text.y.left = element_text(angle = 0),
+        legend.text = element_text(size=20),
+        legend.title = element_text(size=20))+
+  facet_wrap(remark~.,scales = 'free_y',ncol = 1,strip.position = "right")+
+  scale_fill_brewer(palette="Spectral",name = "")+
+  ylab("Relative abundance (%)")+
+  xlab("")+
+  scale_y_discrete(position = "left")+
+  guides(fill=guide_legend(nrow=2, byrow=TRUE))
 
 
-# load metadata
-metadata = read.table("metadata.tab",header = T,sep = '\t')
-metadata$Tube.number
-metadata$sample = paste(metadata$Tube.number,sep  = '')
-
-# load ko number per sample
-data = read.table("KOs/ko_number_per_sample.desc.tab",header = F, sep = '\t',quote = "")
-names(data) = c("desc","ko","sample","n_genes")
-data$sample = tstrsplit(data$sample, "_")[[2]]
-data$sample = str_replace_all(data$sample,"b",'')
+p_prof
 
 
-data = data %>% 
-  left_join(metadata,by = "sample")
+# 4B
 
-# load marker copy number per samplpe
-mabs = read.table("../maker_gene_count/maker_count_per_sample.tab", header = F, sep = "\t")
-names(mabs) = c("sample","mean_n_mar","median_n_mar","total_n_mar")
-mabs$sample = tstrsplit(mabs$sample, "_")[[2]]
-mabs$sample = str_replace_all(mabs$sample,"b",'')
-mabs = mabs %>% 
-  group_by(sample) %>% 
-  dplyr::select(sample,mean_n_mar) %>% 
-  unique()
+div = read.csv('4B.csv')
 
-data = data %>% 
-  left_join(mabs,by = "sample")
+control = div %>% 
+  filter(Lv == 0)
+control_median_rich = median(control$shannon)
+
+df.summary <- div %>%
+  group_by(remark,Lv) %>%
+  summarise(
+    sd = sd(shannon, na.rm = TRUE),
+    len = median(shannon)
+  )
+df.summary
 
 
-data$copy_n_per_cell = data$n_genes / data$mean_n_mar
+df.summary$Lv = as.factor(df.summary$Lv)
 
-# select columns
-data = data %>% 
-  dplyr::select(ko,copy_n_per_cell,remark,sample) %>% 
-  filter(sample != 85) %>% 
-  unique()
+p2 = ggplot(div)+
+  geom_jitter(aes(y = shannon, x = fct_rev(remark)),position = position_jitter(0.2), color = "darkgray",alpha = 0.2) + 
+  geom_errorbar(aes(ymin = len-sd, ymax = len+sd,x = fct_rev(remark),color = Lv),data = df.summary,
+                position = position_dodge(0.3), width = 0.2)+
+  geom_point(aes(x = fct_rev(remark), y = len,color = Lv), data = df.summary,
+             position = position_dodge(0.3)) +
+  theme_minimal()+
+  xlab("")+
+  stat_compare_means(aes(group=fct_rev(remark), x = fct_rev(remark), y = shannon),label = "p.signif", method = "wilcox.test",
+                     ref.group = "Control",hide.ns = TRUE, tip.length = 0)+
+  coord_flip()+
+  scale_fill_brewer(palette = "Dark2")+
+  scale_color_brewer(palette = "Dark2")+
+  geom_hline(yintercept=control_median_rich, linetype="dashed", 
+             color = "grey", size=1)+
+  theme(axis.text.y = element_blank(),   # Remove x-axis ticks
+        strip.background = element_blank(),  # Remove facet labels
+        strip.text = element_blank(),
+        legend.position = "none")+  # Remove facet labels
+  xlab("")+
+  ylab("Shannon \ndiversity")+
+  theme(text = element_text(size = 25))+
+  scale_y_continuous(breaks = c(4.5,5.5))
 
-dspread = data %>%
-  spread(key = ko,value = copy_n_per_cell) 
 
-rownames(dspread) = dspread$sample
-dspread$sample = NULL
-dspread$remark = NULL
-dspread = (as.matrix(dspread))
 
-d_m = vegdist(dspread, method="bray")
-pcoa = ape::pcoa(d_m)
-pcoa_plot = as.data.frame(pcoa$vectors[,1:2])
+p2 
 
-pcoa_plot$sample = row.names(pcoa_plot)
-pcoa_plot = pcoa_plot %>% 
-  left_join(metadata,by = "sample")
+# 4C
+
+pcoa_plot = read.csv('4C.csv')
 
 custom_palette <- c("#999999", "#377EB8", "#F781BF","#4DAF4A", "#FF7F00",
-                    "#E41A1C", "#A65628", "#984EA3", "#FFFF33", "#66C2A5", "black", "#8EBA42")
+                    "#E41A1C", "#A65628", "#984EA3", "#FFFF33", "#66C2A5", "#8EBA42","black")
 
+pcoa_plot$remark = factor(pcoa_plot$remark,levels = c("Control","Warming","Drought","Nitrogen deposition",
+                                                      "Salinity","Heavy metals","Microplastics",
+                                                      "Antibiotics","Fungicide", "Herbicide",
+                                                      "Insecticide","8 factors"
+))
 
-
-p_pcoa = ggplot(pcoa_plot)+
-  geom_point(aes(x = Axis.1, y = Axis.2,color = Treatment,shape = as.factor(Lv)),size =3)+
+p_cor = ggplot(pcoa_plot)+
+  geom_point(aes(x = V1, y = V2,color = remark),size = 4)+
   theme_classic()+
-  xlab(paste("PCoA 1 (",round(pcoa$values$Relative_eig[1]*100,digits = 2),"%)",sep = ""))+
-  ylab(paste("PCoA 2 (",round(pcoa$values$Relative_eig[2]*100,digits = 2),"%)",sep = ""))+
-  geom_text_repel(data = pcoa_plot[pcoa_plot$sample %in% c(124,127,128),],
-                  aes(label = sample,x = Axis.1,y = Axis.2),
-                  box.padding   = 1.5, 
+  xlab('PCoA 1 (47.34%)')+
+  ylab('PCoA 2 (14.68%)')+
+  #xlab(paste("PCoA 1 (",round(pcoa$values$Relative_eig[1]*100,digits = 2),"%)",sep = ""))+
+  #ylab(paste("PCoA 2 (",round(pcoa$values$Relative_eig[2]*100,digits = 2),"%)",sep = ""))+
+  #  theme(text = element_text(size = 20))+
+  geom_text_repel(data = pcoa_plot[pcoa_plot$s %in% c("124 Level 8","127 Level 8","128 Level 8"),],
+                  aes(label = sample,x = V1,y = V2),
+                  box.padding   = 3, 
                   point.padding = 0.5,
                   segment.color = 'grey50')+
-  labs(shape = "Number of factors",color = "Treatment")+
-  theme(legend.position = "none")+
-  scale_color_manual(values = custom_palette)
-
-###
-# DA plots
-###
-
-data = read.table("kpaths/kpath_DA_data_plot.tab")
-data = data %>%
-  arrange(desc(fold_change))
-y_order = unique(data$desc_)
-data$desc_ =  factor(data$desc_, levels = y_order)
-
-p_DA_cols = ggplot(data %>% 
-                arrange(desc(fold_change))) +
-  geom_dumbbell(aes(x=0, xend=fold_change, y = desc_, color = general_),
-                size=1.2) +
-  theme_minimal()+
-  theme(axis.text.x=element_text(angle=90, hjust=1),
-        #legend.position = "bottom",
-        strip.text.y.left = element_text(angle = 0))+
-  xlab("Fold Change")+
-  ylab("KEGG pathway")+
-  scale_color_brewer(palette = "Paired")+
-  labs(color="General pathway classification")
-
-#####
-# correlations
-####
-
-# load data ko number genes per sample
-data_c = read.table("KOs/ko_number_per_sample.desc.tab",header = F, sep = '\t',quote = "")
-names(data_c) = c("desc","ko","sample","n_genes")
-data_c$sample = tstrsplit(data_c$sample, "_")[[2]]
-data_c$sample = str_replace_all(data_c$sample,"b",'')
-
-# load marker copy number per samplpe
-mabs = read.table("../../maker_gene_count/maker_count_per_sample.tab", header = F, sep = "\t")
-names(mabs) = c("sample","mean_n_mar","median_n_mar","total_n_mar")
-mabs$sample = tstrsplit(mabs$sample, "_")[[2]]
-mabs$sample = str_replace_all(mabs$sample,"b",'')
-mabs = mabs %>% 
-  group_by(sample) %>% 
-  dplyr::select(sample,mean_n_mar) %>% 
-  unique()
-
-data = merge(data_c,metadata,by = "sample")
-data = merge(data,mabs,by = "sample")
-
-# flagelum
-head(data)
-d = data %>% 
-  filter(grepl("flg",desc))
-
-d$desc =substr(d$desc, 1, 4)
-d = d %>% 
-  group_by(sample) %>% 
-  mutate(n = sum(n_genes / mean_n_mar)) %>% 
-  dplyr::select(WSA,n,Lv,remark) %>% 
-  unique()
-
-corr_flg = ggplot(d,aes(x = WSA,y = n))+
-  theme_classic()+
-  geom_smooth(method = "lm")+
-  geom_point(aes(shape = as.factor(Lv),color = remark),size = 2)+
-  theme(axis.text.x=element_text(angle=90, hjust=1))+
-  ylab("Copy number per cell")+
-  labs(color = "Treatment",shape = "Number of factors")+
-  ggtitle("Flg operon")+
-  scale_color_manual(values = custom_palette)
-
-corr_flg
-
-# respiration
-names(data)
-d = data %>% 
-  filter(sample != 85) %>% 
-  filter(ko %in% c("K02274","K02275","K02276","K02277")) %>% 
-  group_by(sample) %>% 
-  mutate(n = mean(n_genes / mean_n_mar)) %>% 
-  dplyr::select(CO2_ppm_ThirdWeek,n,Lv,remark) %>% 
-  unique()
+  theme(legend.position = "bottom", 
+        legend.text = element_text(size=20),
+        legend.title = element_blank())+
+  guides(shape = FALSE,fill=guide_legend(nrow=2, byrow=TRUE),
+         color = guide_legend(nrow = 3, byrow = TRUE))+ 
+  scale_color_manual(values = custom_palette)+
+  theme(text = element_text(size = 25))
 
 
-corr_resp = ggplot(d,aes(x = CO2_ppm_ThirdWeek,y = n))+
-  theme_classic()+
-  geom_smooth(method = "lm")+
-  geom_point(aes(shape = as.factor(Lv),color = remark),size = 2)+
-  theme(axis.text.x=element_text(angle=90, hjust=1))+
-  ylab("Copy number per cell")+
-  labs(color = "Treatment",shape = "Number of factors")+
-  ggtitle("cox operon")+
-  xlab("CO2 ppm")+
-  scale_color_manual(values = custom_palette)
-
-####
-# combine 
-###
+p_cor
 
 
-layout <- "AACCC
-           DDDDD"
+layout <- "
+AAABCCC
+"
+p_prof + p2 + p_cor +  plot_layout(design = layout)+plot_annotation(tag_levels = 'A')# , title = 'Figure 3'
 
-corr_com = corr_flg  / corr_resp 
-
-pdf("Figure 4.pdf", width=10, height=8)
-free(p_pcoa) + corr_com  + p_DA_cols + plot_layout(design = layout,guides = "collect")+
-  plot_annotation(tag_levels = 'A',title = 'Figure 4')
-graphics.off()
