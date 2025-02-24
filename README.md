@@ -7,5 +7,5 @@ Scripts used during the analysis of the metagenomes of 70 soil samples exposed t
 
 This repository includes: 
 - A script with the main statistical analysis (`statistics.r`)
-- Scripts for generating the main figures (`Figure1-6.r`)
+- Scripts for generating the main figures (`Figure1-7.r`). The data used for generating the figures is provided as Supplementary material (Source Data) in the paper.  
 - Script for calculating differentially frequent KEGG pathways (`DA_KEEG_pathways.R`)
