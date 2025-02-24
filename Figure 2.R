@@ -1,232 +1,191 @@
-
-library(tidytree)
-library(ggtree)
+library(ggplot2)
+library(tidyr)
 library(dplyr)
-library(data.table)
-library(stringr)
-library(dplyr)
-library(tidyverse)
-library(ggridges)
-library(ggpubr)
 library(patchwork)
+library(ggrepel)
+library(ggalt)
+library(patchwork)
+library(ggpubr)
 
+setwd("~/analysis/Berlin/soil 2019 metagenomes/Figures/Source_data/")
 
-tree <- read.tree("alignment.tr.oneline.rep.faa.treefile.txt",tree.names = T)
-a = as_tibble(tree) 
+d = read.csv("2A.csv")
+d$remark = factor(d$remark,levels = c("Control","Warming","Drought","Nitrogen deposition",
+                                      "Salinity","Heavy metals","Microplastics",
+                                      "Antibiotics","Fungicide", "Herbicide",
+                                      "Insecticide","8 factors"
+))
 
-# format tree tip names 
-tree$tip.label = tstrsplit(tree$tip.label, "\\.")[[1]]
-tree$tip.label = substr(tree$tip.label, 1, nchar(tree$tip.label) - 1)
-tips = tree$tip.label
-
-# add genome annotations to tree
-tax = read.table("../../genome2taxonomy.tab",sep = '\t')
-names(tax) =  c("genome","tax")
-s = tibble(label = tax$genome,tax = tax$tax)
-tree = full_join(tree, s, by = 'label')
-
-
-# add myco - non-myco  to tree
-tax = tax %>% 
-  mutate(path = case_when(grepl("Mycobacterium",tax)~"Mycobacterium",
-                   .default = ""))
-
-s = tibble(label = tax$genome,path = tax$path)
-tree = full_join(tree, s, by = 'label')
-
-# get VF count per genome
-abs = read.table("VFDB_per_bin.curated.tab",sep ='\t',header = F)
-names(abs) = c("tip","tax","gene","gene_v","desc")
-head(abs)
-abs$tax = NULL
-abs$gene = NULL
-abs$desc = NULL
-abs$gene_v = tstrsplit(abs$gene_v, "\\(")[[1]]
-
-abs_t = abs %>%
-  group_by(tip,gene_v) %>% 
-  mutate(n = n()) %>% 
-  unique() %>% 
-  spread(key = gene_v,value = n)
-
-abs_t = as.data.frame(abs_t)
-rownames(abs_t) = abs_t$tip
-abs_t$tip = NULL
-head(abs_t)
-abs_t[is.na(abs_t)] = 0
-dim(abs_t)
-tips
-abs_t
-
-# add missing genomes 
-for (row_name in tips) {
-  if (!(row_name %in% rownames(abs_t))) {
-    d = data.frame(matrix(0, nrow = 1, ncol = ncol(abs_t)))
-    print(row_name)
-    rownames(d) = row_name
-    names(d) = names(abs_t)
-    abs_t <- rbind(abs_t,d)
-  }
-}
-
-
-# plot tree
-custom_palette <- c("white", "lightblue", "orange")
-p = ggtree(tree)+# layout = "equal_angle",branch.length = 'none'
-  geom_tippoint(aes(color=path), size=3, alpha=1)+ # our MAGs / no our MAGs
-  scale_color_manual(name = "",values=custom_palette) 
-  
-
-# add heatmap
-p1 = gheatmap(p, abs_t,
-         colnames_angle=90, 
-         hjust=2, font.size=0,high = 'blue',low = 'white',offset=1,legend_title = "Number",width = 10)
-
-
-#####
-# add mycobacterium abundance plot 
-#####
-
-metadata = read.table("metadata.tab",header = T,sep = '\t')
-metadata$Tube.number
-metadata$sample = paste(metadata$Tube.number,sep  = '')
-
-data = read.table("../coverM/coverM.rel_abs.per_tax.tab",header = F, sep = '\t')
-names(data) = c("species","sample","rel")
-data$sample = tstrsplit(data$sample, "_")[[2]]
-data$sample = str_replace_all(data$sample,"b",'')
-
-data = data %>%
-  left_join(metadata,by = "sample")
-
-
-# plot myco relative abundance per treatmen
-data_ = data %>% 
-  filter(grepl("Mycobacterium",species)) %>% 
-  filter(!grepl("s__",species))
-
-mm = data_ %>% 
-  filter(remark == 'control') %>%
-  group_by(remark) %>% 
-  mutate(m = median(rel)) %>% 
-  dplyr::select(m) %>% 
-  unique()
-
-p_myco = ggplot(data_,
-       aes(x = Lv, y = rel, fill = as.factor(Lv)))+
-  geom_boxplot(outlier.shape = NA,alpha = 0.8)+
-  stat_compare_means(aes(group = as.factor(Lv)),label = "p.signif", method = "wilcox.test",
-                     ref.group = "0",hide.ns = TRUE, tip.length = 0)+
-  theme_minimal()+
-  geom_hline(yintercept= mm$m, linetype="dashed", 
-             color = "grey", size=1)+
-  scale_fill_brewer(palette = "Dark2")+
-  scale_color_brewer(palette = "Dark2")+
-  geom_jitter(aes(color = as.factor(Lv)),shape=16, position=position_jitter(0.2),alpha = 0.8)+
-  ylab("Relative abudance (%)")+
-  xlab("Number of factors")+
-  labs(fill = "Number of factors",color = "Number of factors")+
-  theme(legend.position = "none")  # Remove legend title
-
-p_myco
-
-#####
-# add plot motus mycobacterium species abundance
-#####
-
-setwd("~/analysis/Berlin/soil 2019 metagenomes/tax_profile/prok/")
-data = read.table("motus_merged.rarefied.tsv",header = T, sep = '\t') 
-
-data_g = data %>% 
-  gather(sample,"n_reads",-mOTUs2_clade) %>% 
-  left_join(metadata,by = "sample")
-
-data_g$species = tstrsplit(data_g$mOTUs2_clade, "\\|")[[7]]
-data_g$species = str_replace_all(data_g$species,"s__","")
-
-d_bacteria = data_g %>% 
-  filter(mOTUs2_clade == 'k__Bacteria') %>% 
-  dplyr::select(sample,n_reads)
-
-names(d_bacteria) = c("sample","tot_bac_reads")
-
-d = data_g %>% 
-  filter(grepl("Mycobacterium",mOTUs2_clade) & grepl("s__",mOTUs2_clade))
-
-# group by species
-d = d %>% 
-  left_join(d_bacteria,by = "sample") %>% 
-  group_by(sample,species) %>% 
-  mutate(rel = sum(n_reads)) %>% 
-  dplyr::select(species,sample,rel,remark,Lv) %>% 
-  unique()
-
-
-# filter for significant
-ds <- d %>%
-  filter(remark %in% c("control","Level 8")) 
-d$rel = d$rel *100 / 31310395
-
-results = ds %>% 
-  group_by(species) %>%
-  summarise(p_value = wilcox.test(rel ~ remark)$p.value)
-
-significant_factors <- results %>%
-  filter(p_value < 0.05) %>%
-  filter(!species %in% c("Mycobacterium sp. 852002-50816_SCH5313054-b [ref_mOTU_v31_04182]"))
-
-d = d %>% 
-  filter(species %in% significant_factors$species)
-
-# plot significant
-mm = d %>% 
-  filter(remark == 'control') %>%
-  group_by(remark,species) %>% 
-  mutate(m = median(rel)) %>%
-  ungroup() %>% 
-  dplyr::select(m,species) %>% 
-  unique()
-
-d = d %>% 
-  left_join(mm,by = "species") %>% 
-  filter(sample != "X85")
-
-p_motus = ggplot(d,aes(x = remark, y = rel))+
-  geom_boxplot(outlier.shape = NA,alpha = 0.8,aes(fill = as.factor(Lv)))+
-  stat_compare_means(aes(group = remark),label = "p.signif", method = "wilcox.test",
-                     ref.group = "control",hide.ns = TRUE, tip.length = 0)+
-  facet_wrap(~species,nrow = 1)+
-  coord_flip()+
-  theme_minimal() +
-  geom_hline(aes(yintercept = m), linetype="dashed", 
-             color = "grey", size=1)+
-  scale_fill_brewer(palette = "Dark2")+
-  scale_color_brewer(palette = "Dark2")+
-  geom_jitter(aes(color = as.factor(Lv)),shape=16, position=position_jitter(0.2),alpha = 0.8)+
-  ylab("Percentage of reads (%)")+
+# plot profile flipped 
+p = ggplot(d)+
+  theme_void()+
+  geom_histogram(aes(y = sample,x = rel *100 / tot,fill = class),stat = "identity")+
+  theme(axis.text.x=element_text(angle=90, hjust=1),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = "bottom",
+        strip.text.y.left = element_text(angle = 0),
+        legend.text = element_text(size=20),
+        legend.title = element_text(size=20),
+        axis.text=element_text(size=14))+
+  facet_wrap(remark~.,scales = 'free_y',ncol = 1,strip.position = "right")+
+  scale_fill_brewer(palette="Spectral",name = "")+
+  ylab("Relative abundance (%)")+
   xlab("")+
-  labs(fill = "Number of factors",color = "Number of factors")+
-  theme(legend.position = "none",
-        strip.text.x = element_text(
-          size = 7
-        ))  # Remove legend title
+  scale_y_discrete(position = "left")+
+  guides(fill=guide_legend(nrow=3, byrow=TRUE))+
+  theme(text = element_text(size = 25))
 
-p_motus
+p
 
-#####
-# combine
-#####
+########
+# 2B
+#########
 
+div = read.csv('2B.csv')
+div$remark = factor(div$remark,levels = c("Control","Warming","Drought","Nitrogen deposition",
+                                          "Salinity","Heavy metals","Microplastics",
+                                          "Antibiotics","Fungicide", "Herbicide",
+                                          "Insecticide","8 factors"
+))
+
+
+control = div %>% 
+  filter(Lv == 0)
+control_median_rich = median(control$shannon)
+
+div$Lv = as.factor(div$Lv)
+div$remark <- factor(div$remark, levels = rev(levels(div$remark)))
+
+df.summary <- div %>%
+  group_by(remark,Lv) %>%
+  summarise(
+    sd = sd(shannon, na.rm = TRUE),
+    len = median(shannon)
+  )
+
+
+p2 = ggplot(div)+
+  geom_jitter(aes(y = shannon, x = remark),position = position_jitter(0.2), color = "darkgray",alpha = 0.2) + 
+  geom_errorbar(aes(ymin = len-sd, ymax = len+sd,x = remark,color = Lv),data = df.summary,
+                position = position_dodge(0.3), width = 0.2)+
+  geom_point(aes(x = remark, y = len,color = Lv), data = df.summary,
+             position = position_dodge(0.3)) +
+  theme_minimal()+
+  xlab("")+
+  stat_compare_means(aes(group=remark, x = remark, y = shannon),label = "p.signif", method = "wilcox.test",
+                     ref.group = "Control",hide.ns = TRUE, tip.length = 0,paired = F)+
+  coord_flip()+
+  scale_fill_brewer(palette = "Dark2")+
+  scale_color_brewer(palette = "Dark2")+
+  geom_hline(yintercept=control_median_rich, linetype="dashed", 
+             color = "grey", size=1)+
+  theme(axis.text.y = element_blank(),   # Remove x-axis ticks
+        strip.background = element_blank(),  # Remove facet labels
+        strip.text = element_blank(),
+        legend.position = "none")+  # Remove facet labels
+  xlab("")+
+  ylab("Shannon \ndiversity")+
+  theme(text = element_text(size = 25))+
+  scale_y_continuous(breaks = c(3,3.5))
+
+
+
+p2 
+
+# 2C
+
+data = read.csv('2C.csv')
+
+control = data %>% 
+  filter(Lv == 0)
+control_median_rich = median(control$n)
+data$control_n  = control_median_rich
+
+df.summary <- data %>%
+  group_by(remark,Lv) %>%
+  summarise(
+    sd = sd(n, na.rm = TRUE),
+    len = median(n)
+  )
+
+data$Lv = as.factor(data$Lv)
+df.summary$Lv = as.factor(df.summary$Lv)
+p3 = ggplot(data)+
+  geom_jitter(aes(y = n, x = remark),position = position_jitter(0.2), color = "darkgray",alpha = 0.2) + 
+  geom_errorbar(aes(ymin = len-sd, ymax = len+sd,x = remark,color = Lv),data = df.summary,
+                position = position_dodge(0.3), width = 0.2,)+
+  geom_point(aes(x = remark, y = len,color = Lv), data = df.summary,
+             position = position_dodge(0.3)) +
+  theme_minimal()+
+  xlab("")+
+  stat_compare_means(aes(group=remark, x = remark, y = n),label = "p.signif", method = "wilcox.test",paired = F,
+                     ref.group = "Control",hide.ns = TRUE, tip.length = 0)+
+  coord_flip()+
+  scale_fill_brewer(palette = "Dark2")+
+  scale_color_brewer(palette = "Dark2")+
+  geom_hline(yintercept=control_median_rich, linetype="dashed", 
+             color = "grey", size=1)+
+  theme(axis.text.y = element_blank(),   # Remove x-axis ticks
+        strip.background = element_blank(),  # Remove facet labels
+        strip.text = element_blank(),
+        legend.position = "none")+  # Remove facet labels
+  xlab("")+
+  ylab("Genome \nsize (Mbps)")+
+  theme(text = element_text(size = 25))+
+  scale_y_continuous(breaks = c(5,10))
+
+
+
+p3
+
+# 2D
+
+pcoa_plot = read.csv('2D.csv')
+pcoa_plot$remark = factor(pcoa_plot$remark,levels = c("Control","Warming","Drought","Nitrogen deposition",
+                                                      "Salinity","Heavy metals","Microplastics",
+                                                      "Antibiotics","Fungicide", "Herbicide",
+                                                      "Insecticide","8 factors"
+))
+
+
+custom_palette <- c("#999999", "#377EB8", "#F781BF","#4DAF4A", "#FF7F00",
+                    "#E41A1C", "#A65628", "#984EA3", "#FFFF33", "#66C2A5", "#8EBA42","black")
+
+head(pcoa_plot)
+p4 = ggplot(pcoa_plot)+
+  geom_point(aes(x = V1, y = V2,color = remark),size = 4)+
+  theme_classic()+
+  xlab('PCoA 1 (42.43%)')+
+  ylab('PCoA 2 (17.66%)')+
+  #xlab(paste("PCoA 1 (",round(pcoa$values$Relative_eig[1]*100,digits = 2),"%)",sep = ""))+
+  #ylab(paste("PCoA 2 (",round(pcoa$values$Relative_eig[2]*100,digits = 2),"%)",sep = ""))+
+  geom_text_repel(data = pcoa_plot[pcoa_plot$sample %in% c(124,127,128),],
+                  aes(label = sample,x = V1,y = V2),
+                  box.padding   = 1, 
+                  point.padding = 0.5,
+                  segment.color = 'grey50')+
+  theme(legend.position = "bottom", 
+        legend.text = element_text(size=20),
+        legend.title=element_blank())+
+  guides(shape = FALSE,fill=guide_legend(nrow=2, byrow=TRUE),
+         color = guide_legend(nrow = 3, byrow = TRUE))+ 
+  scale_color_discrete(name = "none")+
+  scale_color_manual(values = custom_palette)+
+  theme(text = element_text(size = 25))
+
+
+p4
+
+##
+# plot
+##
 
 layout <- "
-ABBBBB
-ABBBBB
-CCCCCC
+AAAABCDDDD
 "
 
-p_all = p_myco + p1 + p_motus + 
-  plot_layout(design = layout)+
-  plot_annotation(tag_levels = 'A', title = 'Figure 2')
-
+p_all = p + p2 + p3 + p4 +  plot_layout(design = layout)+
+  plot_annotation(tag_levels = 'A')# , title = 'Figure 1'
 p_all
-  
+
