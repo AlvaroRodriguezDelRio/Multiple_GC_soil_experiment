@@ -1,225 +1,121 @@
-library(ggplot2)
-library(tidyr)
+#install.packages("tidytree")
 library(dplyr)
-library(patchwork)
-library(vegan)
-library(ecodist)
-library(MASS)
 library(data.table)
 library(stringr)
-library(ggsignif)
-library(microbiome)
+library(dplyr)
+library(tidyverse)
+library(ggridges)
 library(ggpubr)
-library(relaimpo)
-library(randomForest)
-library(ggrepel)
+library(patchwork)
+library(scales)
 
-metadata = read.table("../../metadata.tab",header = T,sep = '\t')
-metadata$sample = paste(metadata$Tube.number,sep  = '')
 
-####
-# load data
-####
+setwd("~/analysis/Berlin/soil 2019 metagenomes/Figures/Source_data/")
 
-# load collapsed per tax data for plotting profiles
-data = read.table("coverM/coverM.rel_abs.tab",header = F, sep = '\t')
-names(data) = c("bin","species","sample","rel","rel_tot")
-data$sample = tstrsplit(data$sample, "_")[[2]]
-data$sample = str_replace_all(data$sample,"b",'')
+#3A
 
-data = data %>%
-  left_join(metadata,by = "sample") %>% 
-  filter(!is.na(species))
+data = read.csv('3A.csv')
 
-data[data$species=="NULL",]$species <- "Unclassified"
-data$basal = paste(tstrsplit(data$species, ";")[[1]],tstrsplit(data$species, ";")[[2]],tstrsplit(data$species, ";")[[3]],sep = ";")
-data[data$basal=="Unclassified;NA;NA",]$basal <- "Unclassified"
-
-#####
-# plot profile
-####
-
-d = data %>%
-  filter(sample != 85) %>% 
-  group_by(sample) %>%
-  mutate(tot = sum(rel)) %>%
-  group_by(sample,basal) %>%
-  mutate(rel_sp = sum(rel)) %>%
-  ungroup() %>% 
-  dplyr::select(tot,sample,remark,rel_sp,basal,Lv) %>% 
+mm = data %>% 
+  filter(remark == 'control') %>%
+  group_by(remark) %>% 
+  mutate(m = median(rel)) %>% 
+  dplyr::select(m) %>% 
   unique()
 
-# plot profiled flipped 
-p_prof = ggplot(d)+
-  theme_void()+
-  geom_histogram(aes(y = sample,x = rel_sp *100 / tot,fill = basal),stat = "identity")+
-  theme(axis.text.x=element_text(angle=90, hjust=1),
-        axis.text.y = element_blank(),
-        axis.ticks.y = element_blank(),
-        legend.position = "bottom",
-        strip.text.y.left = element_text(angle = 0),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8))+
-  facet_wrap(remark~.,scales = 'free_y',ncol = 1,strip.position = "right")+
-  scale_fill_brewer(palette="Spectral",name = "")+
-  ylab("Relative abundance (%)")+
-  xlab("")+
-  scale_y_discrete(position = "left")+
-  guides(fill=guide_legend(nrow=3, byrow=TRUE))
-
-
-
-#####
-# add diversity plot 
-####
-
-data_d = data %>% 
-  filter(sample != 85) %>% 
-  dplyr::select(bin ,rel,sample,remark) %>% 
-  mutate(sample = paste(sample,remark)) %>% 
-  group_by(bin,sample) %>% 
-  mutate(rel_sp = sum(rel)) %>% 
-  group_by(bin ) %>% 
-  mutate(nsamples = sum(rel_sp > 0)) %>%
-  dplyr::select(-remark) %>%
-  dplyr::select(-rel) %>%
-  dplyr::select(-nsamples) %>% 
-  unique() %>% 
-  spread(sample,rel_sp)
-
-data_d[is.na(data_d)] = 0
-r = (data_d$bin )
-data_d$bin  = NULL
-s = names(data_d)
-t = data_d
-
-div = microbiome::diversity(t,index = "shannon") # no jaccard 
-div = data.frame(s,div)
-div$treat = gsub("[0-9]* ","",div$s)
-div = div %>% 
-  mutate(lv = case_when(treat == "control" ~0,
-                        treat == "Level8"~8,
-                        .default = 1))
-
-control = div %>% 
-  filter(lv == 0)
-control_median_rich = median(control$shannon)
-div$control_n  = control_median_rich
-div$sample =  tstrsplit(div$s, " ")[[1]]
-div = div %>% 
-  left_join(metadata,by = "sample")
-
-control = div %>% 
-  filter(lv == 0)
-control_median_rich = median(control$shannon)
-
-df.summary <- div %>%
-  group_by(remark,Lv) %>%
-  summarise(
-    sd = sd(shannon, na.rm = TRUE),
-    len = median(shannon)
-  )
-df.summary
-
-p2 = ggplot(div)+
-  geom_jitter(aes(y = shannon, x = (remark)),position = position_jitter(0.2), color = "darkgray",alpha = 0.2) + 
-  geom_errorbar(aes(ymin = len-sd, ymax = len+sd,x = remark,color = Lv),data = df.summary,
-                position = position_dodge(0.3), width = 0.2)+
-  geom_point(aes(x = remark, y = len,color = Lv), data = df.summary,
-             position = position_dodge(0.3)) +
+data$Lv = as.character(data$Lv)
+p_myco = ggplot(data,
+                aes(x = Lv, y = rel, fill = as.factor(Lv)))+
+  #  ggridges::geom_density_ridges()
+  geom_boxplot(outlier.shape = NA,alpha = 0.8)+
+  stat_compare_means(aes(group = as.factor(Lv)),label = "p.signif", method = "wilcox.test",
+                     ref.group = "0",hide.ns = TRUE, tip.length = 0)+
+  #coord_flip()+
   theme_minimal()+
-  xlab("")+
-  stat_compare_means(aes(group=remark, x = remark, y = shannon),label = "p.signif", method = "wilcox.test",
-                     ref.group = "control",hide.ns = TRUE, tip.length = 0)+
-  coord_flip()+
+  geom_hline(yintercept= mm$m, linetype="dashed", 
+             color = "grey", size=1)+
   scale_fill_brewer(palette = "Dark2")+
   scale_color_brewer(palette = "Dark2")+
-  geom_hline(yintercept=control_median_rich, linetype="dashed", 
+  geom_jitter(aes(color = as.factor(Lv)),shape=16, position=position_jitter(0.2),alpha = 0.8)+
+  ylab("Relative abudance (%)")+
+  xlab("Number of factors")+
+  labs(fill = "Number of factors",color = "Number of factors")+
+  theme(legend.position = "none")+
+  coord_flip()+
+  theme(text = element_text(size = 19))
+
+
+p_myco
+
+# 3B
+
+d = read.csv('3B.csv')
+
+mm = d %>% 
+  filter(remark == 'control') %>%
+  group_by(remark,species) %>% 
+  mutate(m = median(rel)) %>%
+  ungroup() %>% 
+  dplyr::select(m,species) %>% 
+  unique()
+
+
+
+
+d$remark = factor(d$remark,levels = c("Control","Warming","Drought","Nitrogen deposition",
+                                      "Salinity","Heavy metals","Microplastics",
+                                      "Antibiotics","Fungicide", "Herbicide",
+                                      "Insecticide","8 factors"
+))
+
+p_motus = ggplot(d,aes(x = remark, y = rel))+
+  geom_boxplot(outlier.shape = NA,alpha = 0.8,aes(fill = as.factor(Lv)))+
+  stat_compare_means(aes(group = remark),label = "p.signif", method = "wilcox.test",
+                     ref.group = "Control",hide.ns = TRUE, tip.length = 0)+
+  facet_wrap(~species,nrow = 1,scales = "free_x")+
+  coord_flip()+
+  theme_minimal() +
+  geom_hline(aes(yintercept = m), linetype="dashed", 
              color = "grey", size=1)+
-  theme(axis.text.y = element_blank(),   # Remove x-axis ticks
-        strip.background = element_blank(),  # Remove facet labels
-        strip.text = element_blank(),
-        legend.position = "none")+  # Remove facet labels
+  scale_fill_brewer(palette = "Dark2")+
+  scale_color_brewer(palette = "Dark2")+
+  geom_jitter(aes(color = as.factor(Lv)),shape=16, position=position_jitter(0.2),alpha = 0.8)+
+  ylab("Relative abundance (%)")+
   xlab("")+
-  ylab("Sannon diversity")
-
-p2 
-
-#####
-# Add composition plot bin
-####
-
-data_d = data %>% 
-  filter(sample != 85) %>% 
-  dplyr::select(bin,rel,sample,remark) %>% 
-  mutate(sample = paste(sample,remark)) %>% 
-  group_by(bin,sample) %>% 
-  mutate(rel_sp = sum(rel)) %>% 
-  group_by(bin) %>% 
-  mutate(nsamples = sum(rel_sp > 0)) %>%
-  dplyr::select(-remark) %>%
-  dplyr::select(-rel) %>%
-  dplyr::select(-nsamples) %>% 
-  unique() %>% 
-  spread(sample,rel_sp)
-
-dpcoa = data_d
-rownames_ = as.character(dpcoa$bin)
-dpcoa$bin = NULL
-s_names = names(dpcoa)
-dpcoa = as.matrix(dpcoa)
-dpcoa = t(dpcoa)
-
-rownames(dpcoa) = s_names
-sample_order = gsub("[0-9]* ","",rownames(dpcoa)) 
-dpcoa[is.na(dpcoa)] = 0
-
-d_m = vegdist(dpcoa, method="bray")
-pcoa = ape::pcoa(d_m)
-pcoa_plot = as.data.frame(pcoa$vectors[,1:2])
-
-pcoa_plot$remark = sample_order
-pcoa_plot = pcoa_plot %>% mutate(lv = case_when(remark == "control" ~0,
-                                                remark == "Level8"~8,
-                                                .default = 1))
-
-names(pcoa_plot) = c("V1","V2","remark","lv")
-pcoa_plot$lv = as.factor(pcoa_plot$lv)
-pcoa_plot$s = rownames(pcoa_plot)
-pcoa_plot$sample = tstrsplit(pcoa_plot$s, " ")[[1]]
-pcoa_plot$`Number of factors` = pcoa_plot$lv
+  theme(text = element_text(size = 20))+
+  labs(fill = "Number of factors",color = "Number of factors")+
+  theme(legend.position = "none",
+        strip.text.x = element_text(
+          size = 10
+        ))+  # Remove legend title
+  theme(
+    strip.text.x = element_text(size = 16), # For column facet titles
+    strip.text.y = element_text(size = 15))+
+  theme(axis.text.y = element_text(size=20))+
+  scale_y_continuous(breaks = pretty_breaks(n = 2))
 
 
-custom_palette <- c("#999999", "#377EB8", "#F781BF","#4DAF4A", "#FF7F00",
-                    "#E41A1C", "#A65628", "#984EA3", "#FFFF33", "#66C2A5", "black", "#8EBA42")
 
-p_cor = ggplot(pcoa_plot)+
-  geom_point(aes(x = V1, y = V2,color = remark,shape = `Number of factors`),size = 3)+
-  theme_classic()+
-  xlab(paste("PCoA 1 (",round(pcoa$values$Relative_eig[1]*100,digits = 2),"%)",sep = ""))+
-  ylab(paste("PCoA 2 (",round(pcoa$values$Relative_eig[2]*100,digits = 2),"%)",sep = ""))+
-  #  theme(text = element_text(size = 20))+
-  geom_text_repel(data = pcoa_plot[pcoa_plot$s %in% c("124 Level 8","127 Level 8","128 Level 8"),],
-                  aes(label = sample,x = V1,y = V2),
-                  box.padding   = 3, 
-                  point.padding = 0.5,
-                  segment.color = 'grey50')+
-  theme(legend.position = "bottom", 
-        legend.text = element_text(size=9),
-        legend.title = element_text(size=9))+
-  guides(shape = FALSE)+
-  scale_color_manual(values = custom_palette)
-
+p_motus
 
 #####
-# plot combined
-####
+# combine
+#####
+
 
 layout <- "
-AAABCCC
+AAAAA
+BBBBB
+BBBBB
 "
-p_prof + p2 + p_cor +  plot_layout(design = layout)+plot_annotation(tag_levels = 'A', title = 'Figure 3')
 
-pdf("Figure 3.pdf", width=20, height=8)
-p_prof + p2 + p_cor +  plot_layout(design = layout)+plot_annotation(tag_levels = 'A',, title = 'Figure 3')
-graphics.off()
+p_all = p_myco + p_motus + 
+  plot_layout(design = layout)+
+  plot_annotation(tag_levels = 'A')# , title = 'Figure 2'
+
+
+p_all
+
+
+
+
