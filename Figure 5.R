@@ -1,195 +1,92 @@
+# funct combined plot 
 library(ggplot2)
-library(tidyr)
-library(dplyr)
-library(tidyverse)
-library(data.table)
-library(stringr)
-library(stringr)
-library(ggpubr)
 library(patchwork)
+library(dplyr)
+library(data.table)
+library(tidyr)
+library(tidyverse)
+library(pheatmap)
+library(ggrepel)
+library(ggalt)
+library(ggpubr)
 
-setwd("~/analysis/Berlin/soil 2019 metagenomes/gene_prediction/CARD/")
-
-metadata = read.table("../../metadata.tab",header = T,sep = '\t')
-metadata$Tube.number
-metadata$sample = paste(metadata$Tube.number,sep  = '')
-
-
-####
-# load data
-####
-
-# load 
-data = read.table("hits.1e7_id80_cov75.n_genes_ass.gene_name.CARD_code.tab",header = F, sep = '\t',quote = "")
-names(data) = c("sample","gene","cat","name","n","ncard","ncard_plasmids","nmob")
-data$sample = tstrsplit(data$sample, "_")[[2]]
-data$sample = str_replace_all(data$sample,"b",'')
-
-data = data %>% 
-  left_join(metadata,by = "sample")
-
-# load marker copy number per samplpe
-mabs = read.table("../../maker_gene_count/maker_count_per_sample.tab", header = F, sep = "\t")
-names(mabs) = c("sample","mean_n_mar","median_n_mar","total_n_mar")
-mabs$sample = tstrsplit(mabs$sample, "_")[[2]]
-mabs$sample = str_replace_all(mabs$sample,"b",'')
-mabs = mabs %>% 
-  group_by(sample) %>% 
-  dplyr::select(sample,mean_n_mar) %>% 
-  unique()
-data = data %>% 
-  left_join(mabs,by = "sample")
+setwd("~/analysis/Berlin/soil 2019 metagenomes/Figures/Source_data/")
 
 
-# load composition per sample
-#comp = read.table("../../tax_profile/COMBINED/composition.tab",header = T)
-comp = read.table("../../MAGs/semibin/dRep/coverM/composition.no85.tab",header = T)
-comp$sample = tstrsplit(comp$sample, " ")[[1]]
-comp$sample = str_replace_all(comp$sample,"b",'')
-comp = comp %>% 
-  dplyr::select(sample,V1,V2)
-data = data %>% 
-  left_join(comp,by = "sample")
+data = read.csv('5C.csv')
 
-data$remark = factor(data$remark,levels = c("control","antibiotics", "copper", "drought",
-                                            "microplastic", "Ndep", "salinity", "temp",
-                                            "fungicide", "glyphosate","insecticide","Level 8"
-))
-
-
-#####
-# copies per cell, per category general 
-####
-
-names(data)
-d = data %>% 
-  filter(sample != 85) %>% 
-  group_by(sample,cat) %>% 
-  mutate(n  = sum( ncard / mean_n_mar)) %>% 
-  dplyr::select(n,sample,cat,Lv,remark,Salinity..9.) %>% 
-  unique()
-
-dcontrol = d %>% 
-  filter(remark == 'control') %>%
-  group_by(cat) %>% 
-  mutate(median_control = median(n)) %>% 
-  dplyr::select(cat,median_control) %>% 
-  ungroup() %>% 
-  unique()
+p_DA_cols = ggplot(data %>% 
+                     arrange(desc(fold_change))) +
+  geom_dumbbell(aes(x=0, xend=fold_change, y = desc_, color = general_),
+                size=1.2) +
+  theme_minimal()+
+  theme(axis.text.x=element_text(angle=90, hjust=1),
+        #legend.position = "bottom",
+        strip.text.y.left = element_text(angle = 0))+
+  xlab("Fold Change")+
+  ylab("KEGG pathway")+
+  #  scale_color_brewer(palette = "Paired")+
+  scale_color_manual(values = c(
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
+    "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#98df8a", "#ff9896"
+  )) +
+  labs(color="General pathway classification")+
+  guides(color = guide_legend(override.aes = list(size = 4)))+   # Adjust the size of the points in the legend
+  theme(text = element_text(size = 25))
 
 
-d = d %>% 
-  left_join(dcontrol,by = "cat")
+p_DA_cols
 
-p_general = ggplot(d %>% 
-                     filter(!cat %in% c("antibiotic target alteration","antibiotic efflux","reduced permeability to antibiotic","antibiotic target alteration;antibiotic target replacement")),
-                   aes(x = remark, y = n))+
-  geom_boxplot(aes(color = as.factor(Lv),fill = as.factor(Lv)),outlier.shape = NA,alpha = 0.3)+
-  coord_flip()+
-  facet_wrap(~cat,scales = "free_x",ncol = 2)+
-  stat_compare_means(label = "p.signif", method = "wilcox.test",
-                     ref.group = "control",hide.ns = TRUE, tip.length = 0)+
+# 5A
+
+d = read.csv('5A.csv')
+head(d)
+
+corr_flg = ggplot(d,aes(x = WSA,y = n))+
   theme_classic()+
-  geom_jitter(aes(color = as.factor(Lv),fill = as.factor(Lv)),shape=16, position=position_jitter(0.2),alpha = 0.8)+
-  ylab("Copies per cell")+
-  theme_minimal()+
-  geom_hline(aes(yintercept= median_control), linetype="dashed", 
-             color = "grey", size=1)+
-  scale_fill_brewer(palette = "Dark2")+
-  scale_color_brewer(palette = "Dark2")+
-  labs(fill = "Number of factors",color = "Number of factors")
-
-####
-# particular genes boxplot
-####
-
-dcontrol = data %>% 
-  mutate(n  =  ncard / mean_n_mar) %>% 
-  filter(remark == 'control') %>%
-  group_by(name) %>% 
-  mutate(median_control = median(n)) %>% 
-  dplyr::select(name,median_control) %>% 
-  ungroup() %>% 
-  unique()
-
-d = data %>% 
-  left_join(dcontrol,by = "name")
+  geom_smooth(method = "lm")+
+  geom_point(size = 5,alpha = 0.5)+ # aes(shape = as.factor(Lv),color = remark)
+  theme(axis.text.x=element_text(angle=90, hjust=1))+
+  ylab("Copy # per cell")+
+  labs(color = "Treatment",shape = "Number of factors")+
+  ggtitle("Flg operon")+
+  guides(color = guide_legend(override.aes = list(size = 4)),
+         size = guide_legend(override.aes = list(size = 4)))+
+  theme(text = element_text(size = 25))
 
 
-p_genes = ggplot(d %>% 
-                   filter(name %in% c("BJP-1","RbpA")) %>% 
-                   filter(sample != 85),aes(x = remark, y = ncard / mean_n_mar))+
-  geom_boxplot(aes(color = as.factor(Lv),fill = as.factor(Lv)),outlier.shape = NA,alpha = 0.3)+
-  coord_flip()+
-  facet_wrap(~name,scales = "free_x",ncol = 2)+
-  stat_compare_means(label = "p.signif", method = "wilcox.test",
-                     ref.group = "control",hide.ns = TRUE, tip.length = 0)+
+corr_flg
+
+# 5B
+
+d = read.csv('5B.csv')
+corr_resp = ggplot(d,aes(x = CO2_ppm_ThirdWeek,y = n))+
   theme_classic()+
-  geom_jitter(aes(color = as.factor(Lv),fill = as.factor(Lv)),shape=16, position=position_jitter(0.2),alpha = 0.8)+
-  ylab("Copies per cell")+
-  theme_minimal()+
-  geom_hline(aes(yintercept= median_control), linetype="dashed", 
-             color = "grey", size=1)+
-  scale_fill_brewer(palette = "Dark2")+
-  scale_color_brewer(palette = "Dark2")+
-  labs(fill = "Number of factors",color = "Number of factors")
-
-#####
-# corr with composition 
-#####
-
-
-# load collapsed per sample
-data = read.table("~/analysis/Berlin/soil 2019 metagenomes/gene_prediction/stats_per_sample.1e7_id80_cov75.tab",header = F, sep = '\t')
-names(data) = c("sample","n_genes","ncard","ncard_plasmids","div_card","nres","nres_plasmids","div_res","nmob","div_mob")
-data$sample = tstrsplit(data$sample, "_")[[2]]
-data$sample = str_replace_all(data$sample,"b",'')
-
-data = data %>% 
-  left_join(metadata,by = "sample") %>% 
-  left_join(mabs,by = "sample") %>% 
-  left_join(comp,by = "sample") %>%
-  filter(sample != 85)
-
-custom_palette <- c("#999999", "#377EB8", "#F781BF","#4DAF4A", "#FF7F00",
-                    "#E41A1C", "#A65628", "#984EA3", "#FFFF33", "#66C2A5", "black", "#8EBA42")
+  geom_smooth(method = "lm")+
+  geom_point(size = 5,alpha = 0.5)+ #aes(shape = as.factor(Lv),color = remark)
+  theme(axis.text.x=element_text(angle=90, hjust=1))+
+  ylab("Copy # per cell")+
+  labs(color = "Treatment",shape = "Number of factors")+
+  ggtitle("cox operon")+
+  xlab("CO2 ppm")+
+  guides(color = guide_legend(override.aes = list(size = 4)),
+         size = guide_legend(override.aes = list(size = 4)))+
+  theme(text = element_text(size = 25))
+# Adjust the size of the points in the legend
 
 
-ggplot(data,aes(y = ncard / mean_n_mar, x = remark))+
-  geom_boxplot(aes(color = remark))+
-  stat_compare_means(aes(group=remark,y = ncard / mean_n_mar, x = remark),label = "p.signif", method = "t.test",
-                     ref.group = "Level 8",hide.ns = TRUE, tip.length = 0)
-  
-pcorr = ggplot(data ,aes(x = ncard / mean_n_mar, y = V1))+
-  geom_point(alpha = 0.5,size = 3,aes(color = remark))+
-  geom_smooth(method = 'lm')+
-  theme_minimal()+
-  ylab("Bacterial composition")+
-  xlab("ARG copy number per cell")+
-  scale_color_manual(values = custom_palette)
+corr_resp
 
 
-pcorr2 = ggplot(data,aes(x = ncard / mean_n_mar, y = nmob / mean_n_mar))+
-  geom_point(alpha = 0.5,size = 3,aes(color = remark))+
-  geom_smooth(method = 'lm')+
-  theme_minimal()+
-  ylab("MGE copy number per cell")+
-  xlab("ARG copy number per cell")+
-  scale_color_manual(values = custom_palette)
+layout <- "ACC
+           BCC"
 
 
-#####
-# combine 
-#####
+corr_com = free(corr_flg)  + free(corr_resp)
 
-layout <- "AACC
-           BBDD"
 
-p_general + p_genes  + pcorr + pcorr2 + plot_layout(guides = "collect",design = layout)+# design = layout
-  plot_annotation(tag_levels = 'A',title = 'Figure 5')
+corr_com +  p_DA_cols + plot_layout(design = layout,guides = "collect")+
+  plot_annotation(tag_levels = 'A')
 
-pdf("~/analysis/Berlin/soil 2019 metagenomes/Figures/Figure 5.pdf", width=15, height=8)
-p_general + p_genes  + pcorr + pcorr2 + plot_layout(guides = "collect",design = layout)+# design = layout
-  plot_annotation(tag_levels = 'A',title = 'Figure 5')
 
-graphics.off()
+
